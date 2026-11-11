@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bible Verse Connections</title>
+    <title>Bizarro Bible</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,8 +11,8 @@
     <div class="main-scroll">
 
         <div id="setup-screen" class="screen-container">
-            <h1>BIBLE VERSE CONNECTIONS</h1>
-            
+            <h1>Bizarro Bible</h1>
+
             <div class="logo-placeholder"></div>
 
             <div class="form-group">
@@ -31,11 +31,7 @@
 
             <div class="form-group">
                 <label>Select Book:</label>
-                <select id="book-select">
-                    <option value="Entire Bible">Entire Bible</option>
-                    <option value="Old Testament">Old Testament</option>
-                    <option value="New Testament">New Testament</option>
-                </select>
+                <select id="book-select"></select>
             </div>
 
             <button id="generate-btn" class="ctk-btn primary-btn">GENERATE BOARD</button>
@@ -43,48 +39,20 @@
         </div>
 
         <div id="game-screen" class="screen-container" style="display: none;">
-            
-            <div class="header-frame">
-                <h2 id="game-title">BIBLE CONNECTIONS</h2>
-                <div id="anchors-hint" class="hint-text">Anchors: WORD1, WORD2, WORD3, WORD4</div>
-            </div>
+            <h2 id="game-title">BIZARRO BIBLE</h2>
 
-            <div id="solved-frame">
-                <div class="solved-box" style="background-color: #f9df6d;">
-                    <div class="solved-text-content">
-                        <strong>Genesis 1:1</strong><br>
-                        In the beginning, God created the heavens and the earth.
-                    </div>
-                </div>
-            </div>
+            <div id="verse-display"></div>
 
-            <div id="grid-frame">
-                <button class="grid-btn">WORD</button><button class="grid-btn selected">SELECTED</button>
-                <button class="grid-btn">WORD</button><button class="grid-btn">WORD</button>
-                <button class="grid-btn">WORD</button><button class="grid-btn">WORD</button>
-                <button class="grid-btn">WORD</button><button class="grid-btn">WORD</button>
-                <button class="grid-btn">WORD</button><button class="grid-btn">WORD</button>
-                <button class="grid-btn">WORD</button><button class="grid-btn">WORD</button>
-                <button class="grid-btn">WORD</button><button class="grid-btn">WORD</button>
-                <button class="grid-btn">WORD</button><button class="grid-btn">WORD</button>
-            </div>
+            <div id="msg-label" class="msg-text"></div>
 
             <div class="ctrl-frame">
-                <button id="shuffle-btn" class="ctk-btn action-btn">Shuffle</button>
-                <button id="deselect-btn" class="ctk-btn action-btn" disabled>Deselect All</button>
-                <button id="submit-btn" class="ctk-btn action-btn" disabled>Submit</button>
-            </div>
-
-            <div id="msg-label" class="msg-text status-orange">One Away! (Hint: 3 are from John)</div>
-            <div id="lives-label" class="lives-text">Lives: ❤️ ❤️ ❤️ ❤️ ❤️ ❤️ ❤️ </div>
-
-            <div class="zoom-frame">
-                <button id="zoom-out-btn" class="ctk-btn zoom-btn">Zoom -</button>
-                <button id="zoom-in-btn" class="ctk-btn zoom-btn">Zoom +</button>
+                <button id="new-verses-btn" class="ctk-btn action-btn">New Verses</button>
+                <button id="back-btn" class="ctk-btn action-btn">Menu</button>
             </div>
         </div>
 
     </div>
+<script src="https://cdn.jsdelivr.net/npm/compromise@v14.20.0/builds/compromise.min.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
