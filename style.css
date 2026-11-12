@@ -156,6 +156,14 @@ h2 {
     margin-bottom: 10px;
 }
 
+select.swap {
+    width: auto;
+    font-size: inherit;
+    padding: 0 4px;
+    margin: 0 2px;
+    border: 1px solid var(--btn-primary);
+}
+
 .ctrl-frame {
     display: flex;
     gap: 20px;

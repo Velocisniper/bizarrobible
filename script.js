@@ -15,7 +15,7 @@ const STORAGE_KEYS = {
 
 // Words that can never be swapped for an antonym. Add more as you find them.
 const STOP_WORDS = new Set([
-    "come", "go", "be", "is", "are", "was", "were", "am", "the", "a", "an", "and", "said"
+    "come", "go", "be", "is", "are", "was", "were", "am", "the", "a", "an", "and", "said", "ham"
 ]);
 
 // Used by the daily game's share text
@@ -61,6 +61,7 @@ let dailyDayNumber = 0;
 let guessHistoryColors = [];
 let hasFailedDailyBook = false; // Tracks if we had to swap out of a seeded book
 let currentPuzzle = [];
+let flipPercent = 50;
 
 
 // =====================================================
@@ -93,6 +94,8 @@ function populateBookDropdown() {
 function restoreSavedSettings() {
     const savedTranslation = localStorage.getItem(STORAGE_KEYS.translation);
     const savedBook = localStorage.getItem(STORAGE_KEYS.book);
+    const savedFlipPercent = localStorage.getItem(STORAGE_KEYS.flipPercent);
+
 
     if (savedTranslation) {
         document.getElementById("translation-select").value = savedTranslation;
@@ -100,15 +103,22 @@ function restoreSavedSettings() {
     if (savedBook) {
         document.getElementById("book-select").value = savedBook;
     }
+    if (savedFlipPercent) {
+        flipPercent = parseInt(savedFlipPercent);
+        document.getElementById("flip-slider").value = flipPercent;
+        document.getElementById("flip-value").textContent = flipPercent;
+    }
 }
 
 // Runs when Generate is clicked: dropdowns -> variables -> storage
 function readAndSaveSettings() {
     translation = document.getElementById("translation-select").value;
     bookChoice = document.getElementById("book-select").value;
+    flipPercent = parseInt(document.getElementById("flip-slider").value);
 
     localStorage.setItem(STORAGE_KEYS.translation, translation);
     localStorage.setItem(STORAGE_KEYS.book, bookChoice);
+    localStorage.setItem(STORAGE_KEYS.flipPercent, flipPercent);
 }
 
 // Normal (random) game: make sure daily settings are switched off first
@@ -124,6 +134,11 @@ function setupEventListeners() {
     document.getElementById("how-to-play-btn").addEventListener("click", showHowToPlay);
     document.getElementById("new-verses-btn").addEventListener("click", startRandomGame);
     document.getElementById("back-btn").addEventListener("click", () => showScreen("setup"));
+    document.getElementById("flip-slider").addEventListener("input", () => {
+        flipPercent = parseInt(document.getElementById("flip-slider").value);
+        document.getElementById("flip-value").textContent = flipPercent;
+    });
+
 
     // Daily game button, inserted just under How To Play
     const howToPlayBtn = document.getElementById("how-to-play-btn");
@@ -366,6 +381,37 @@ function chooseAntonym(options, base, chosen) {
     return pick;
 }
 
+// Makes the antonym start with a capital if the original word did.
+function matchCase(original, word) {
+    if (original[0] !== original[0].toLowerCase()) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+    }
+    return word;
+}
+
+// Picks which words get flipped and gives each one its two dropdown options.
+function flipWords(puzzle) {
+    const candidates = puzzle.flatMap(verse => verse.tokens).filter(t => t.hasAntonym);
+    const count = Math.max(1, Math.round(candidates.length * flipPercent / 100));
+
+    // Shuffle a COPY, take the first `count`, and remember them in a Set
+    const picked = new Set(deterministicShuffle([...candidates]).slice(0, count));
+
+    puzzle.forEach(verse => {
+        const chosen = new Map();   // fresh for each verse, so repeats of a word agree
+        verse.tokens.forEach(token => {
+            if (!picked.has(token)) return;
+
+            const antonym = matchCase(token.text, chooseAntonym(token.options, token.base, chosen));
+            token.flipped = true;
+            token.antonym = antonym;
+            token.choices = deterministicShuffle([token.text, antonym]);
+            token.selected = token.choices[0];
+        });
+    });
+}
+
+
 // =====================================================
 // LOADING VERSES
 // =====================================================
@@ -469,6 +515,7 @@ async function startBoardGeneration() {
             return;
         }
         currentPuzzle = result.puzzle
+        flipWords(currentPuzzle);
         console.log("Picked:", result.reference, "viable words:", result.flippable);
         message.textContent = "";
         renderVerses(result, currentPuzzle);
@@ -476,6 +523,24 @@ async function startBoardGeneration() {
         console.error(error);
         message.textContent = "Error loading verses. Press F12 and check the console.";
     }
+}
+
+function makeDropdown(token) {
+    const select = document.createElement("select");
+    select.className = "swap";
+
+    token.choices.forEach(choice => {
+        const option = document.createElement("option");
+        option.value = choice;
+        option.textContent = choice;
+        select.appendChild(option);
+    });
+
+    select.value = token.selected;
+    select.addEventListener("change", () => {
+        token.selected = select.value;   // remember the player's pick
+    });
+    return select;
 }
 
 function renderVerses(result, puzzle) {
@@ -491,13 +556,14 @@ function renderVerses(result, puzzle) {
         paragraph.appendChild(number);
 
         verse.tokens.forEach(token => {
-            const span = document.createElement("span");
-            span.textContent = token.text;
-            if (token.hasAntonym) {
-                span.className = "hasAntonym";
-            }
-            paragraph.appendChild(span);
-        });
+    if (token.flipped) {
+        paragraph.appendChild(makeDropdown(token));
+    } else {
+        const span = document.createElement("span");
+        span.textContent = token.text;
+        paragraph.appendChild(span);
+    }
+});
 
         paragraph.appendChild(document.createTextNode(" "));
     });
@@ -510,6 +576,7 @@ function renderVerses(result, puzzle) {
         display.appendChild(ref);
     }
 }
+
 
 // =====================================================
 // DAILY GAME (kept from the original; not wired up yet)
