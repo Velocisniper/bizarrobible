@@ -346,8 +346,7 @@ async function fetchAntonyms(base) {
     let fromDatamuse = [];
     if (USE_DATAMUSE) {
         try {
-const url = `https://api.datamuse.com/words?rel_ant=${encodeURIComponent(base)}&max=10&src=${encodeURIComponent(velocisniper.github.io)}`;
-            const response = await fetch(url);
+const url = `https://api.datamuse.com/words?rel_ant=${encodeURIComponent(base)}&max=10&src=${encodeURIComponent(location.host)}`;
             if (!response.ok) throw new Error(`Datamuse status ${response.status}`);
             const results = await response.json();
 
