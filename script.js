@@ -343,10 +343,11 @@ async function fetchAntonyms(base) {
     await loadOfflineAntonyms();
     if (antonymCache.has(base)) return antonymCache.get(base);
 
-    let fromDatamuse = [];
+        let fromDatamuse = [];
     if (USE_DATAMUSE) {
         try {
-const url = `https://api.datamuse.com/words?rel_ant=${encodeURIComponent(base)}&max=10&src=${encodeURIComponent(location.host)}`;
+            const url = `https://api.datamuse.com/words?rel_ant=${encodeURIComponent(base)}&max=10&src=${encodeURIComponent(location.host)}`;
+            const response = await fetch(url);
             if (!response.ok) throw new Error(`Datamuse status ${response.status}`);
             const results = await response.json();
 
