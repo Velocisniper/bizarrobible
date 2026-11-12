@@ -336,7 +336,7 @@ async function readAntonymCsv() {
 const antonymCache = new Map();   // base word -> antonym (or null if none)
 
 // Returns an antonym for a base word, or null if there isn't one.
-const MAX_ANTONYM_CHOICES = 4;   // how many of Datamuse's top answers we'll randomly pick from
+const MAX_ANTONYM_CHOICES = 2;   // how many of Datamuse's top answers we'll randomly pick from
 
 // Returns a LIST of single-word antonyms for a base word (empty list if none).
 async function fetchAntonyms(base) {
@@ -398,13 +398,75 @@ function flipWords(puzzle) {
         verse.tokens.forEach(token => {
             if (!token.hasAntonym) return;
 
-            const antonym = matchCase(token.text, chooseAntonym(token.options, token.base, chosen));
+    const base = chooseAntonym(token.options, token.base, chosen);
+    const antonym = matchCase(token.text, inflectAntonym(base, token.form));
+    if (antonym.toLowerCase() === token.text.toLowerCase()) return;   // skip if both options would match
             token.hasDropdown = true;
             token.antonym = antonym;
             token.choices = deterministicShuffle([token.text, antonym]);
             token.selected = (randomFunc() * 100 < flipPercent) ? antonym : token.text;
         });
     });
+}
+
+// --- INFLECTION ---
+
+// Returns the last word of a piece of text ("they saved" -> "saved")
+function lastWord(text) {
+    const words = text.trim().split(/\s+/);
+    return words[words.length - 1];
+}
+
+// Adds -s / -es / -ies the way English does
+function addS(word) {
+    if (/(s|x|z|ch|sh)$/.test(word)) return word + "es";
+    if (/[^aeiou]y$/.test(word)) return word.slice(0, -1) + "ies";
+    return word + "s";
+}
+
+// Simple backup rules, used only if compromise leaves a word unchanged
+function simpleInflect(word, form) {
+    if (form === "past") {
+        if (word.endsWith("e")) return word + "d";
+        if (/[^aeiou]y$/.test(word)) return word.slice(0, -1) + "ied";
+        return word + "ed";
+    }
+    if (form === "gerund") {
+        if (word.endsWith("ie")) return word.slice(0, -2) + "ying";
+        if (word.endsWith("e") && !word.endsWith("ee")) return word.slice(0, -1) + "ing";
+        return word + "ing";
+    }
+    if (form === "third" || form === "plural") return addS(word);
+    return word;
+}
+
+// Turns a base-form antonym into the form the original word had.
+function inflectAntonym(word, form) {
+    if (form === "none") return word;
+
+    let result = word;
+
+    if (form === "past") {
+        const doc = nlp("they " + word);      // a little context helps compromise see a verb
+        doc.verbs().toPastTense();
+        result = lastWord(doc.text());
+    } else if (form === "gerund") {
+        const doc = nlp("they " + word);
+        doc.verbs().toGerund();
+        result = lastWord(doc.text());
+    } else if (form === "plural") {
+        const doc = nlp(word);
+        doc.nouns().toPlural();
+        result = lastWord(doc.text());
+    } else if (form === "third") {
+        result = addS(word);
+    }
+
+    // If compromise left the word unchanged, use the simple rules instead
+    if (result.toLowerCase() === word.toLowerCase()) {
+        result = simpleInflect(word, form);
+    }
+    return result.toLowerCase();
 }
 
 // =====================================================
