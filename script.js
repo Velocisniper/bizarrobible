@@ -390,27 +390,22 @@ function matchCase(original, word) {
 }
 
 // Picks which words get flipped and gives each one its two dropdown options.
+// Gives EVERY word that has an antonym a dropdown.
+// The slider (flipPercent) is the chance that a dropdown starts on the antonym.
 function flipWords(puzzle) {
-    const candidates = puzzle.flatMap(verse => verse.tokens).filter(t => t.hasAntonym);
-    const count = Math.max(1, Math.round(candidates.length * flipPercent / 100));
-
-    // Shuffle a COPY, take the first `count`, and remember them in a Set
-    const picked = new Set(deterministicShuffle([...candidates]).slice(0, count));
-
     puzzle.forEach(verse => {
         const chosen = new Map();   // fresh for each verse, so repeats of a word agree
         verse.tokens.forEach(token => {
-            if (!picked.has(token)) return;
+            if (!token.hasAntonym) return;
 
             const antonym = matchCase(token.text, chooseAntonym(token.options, token.base, chosen));
-            token.flipped = true;
+            token.hasDropdown = true;
             token.antonym = antonym;
             token.choices = deterministicShuffle([token.text, antonym]);
-            token.selected = token.choices[0];
+            token.selected = (randomFunc() * 100 < flipPercent) ? antonym : token.text;
         });
     });
 }
-
 
 // =====================================================
 // LOADING VERSES
@@ -556,7 +551,7 @@ function renderVerses(result, puzzle) {
         paragraph.appendChild(number);
 
         verse.tokens.forEach(token => {
-    if (token.flipped) {
+    if (token.hasDropdown){
         paragraph.appendChild(makeDropdown(token));
     } else {
         const span = document.createElement("span");
