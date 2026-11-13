@@ -188,3 +188,9 @@ select.swap {
     color: #e6c3ff;
 
 }
+
+.action-btn:disabled {
+    background-color: #2e3b4e;
+    color: #707070;
+    cursor: not-allowed;
+}

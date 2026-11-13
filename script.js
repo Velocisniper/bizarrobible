@@ -3,7 +3,7 @@
 const DATA_FOLDER = "Bible_Data";   // folder that holds OT/ and NT/
 const TARGET_WORDS = 20;            // keep adding verses until we have this many viable words
 const MIN_WORD_LENGTH = 3;          // words shorter than this are not viable
-const SHOW_REFERENCE = true;        // later this will be hidden until the player wins
+const SHOW_REFERENCE = false;    // later this will be hidden until the player wins
 
 // Keys used for saving/loading dropdown choices.
 // Both the save code and the load code use THESE constants,
@@ -15,7 +15,7 @@ const STORAGE_KEYS = {
 
 // Words that can never be swapped for an antonym. Add more as you find them.
 const STOP_WORDS = new Set([
-    "come", "go", "be", "is", "are", "was", "were", "am", "the", "a", "an", "and", "said", "ham"
+    "come", "go", "be", "is", "are", "was", "were", "am", "the", "a", "an", "and", "said", "ham", "put"
 ]);
 
 // Used by the daily game's share text
@@ -51,6 +51,10 @@ const BIBLE_BOOKS = [
 let translation = "ESV";
 let bookChoice = "Entire Bible";
 const bookCache = {};   // remembers books we already downloaded so we don't fetch twice
+let currentPuzzle = [];
+let flipPercent = 50;
+let lastScore = null;   // percent from the previous check (null = no check yet)
+let checkCount = 0;
 
 // --- DAILY GAME STATE ---
 // randomFunc is the "dice" used for every random choice.
@@ -60,8 +64,7 @@ let isDailyMode = false;
 let dailyDayNumber = 0;
 let guessHistoryColors = [];
 let hasFailedDailyBook = false; // Tracks if we had to swap out of a seeded book
-let currentPuzzle = [];
-let flipPercent = 50;
+
 
 
 // =====================================================
@@ -137,6 +140,7 @@ function setupEventListeners() {
     document.getElementById("flip-slider").addEventListener("input", () => {
         flipPercent = parseInt(document.getElementById("flip-slider").value);
         document.getElementById("flip-value").textContent = flipPercent;
+    document.getElementById("check-btn").addEventListener("click", checkAnswers);
     });
 
 
@@ -573,6 +577,9 @@ async function startBoardGeneration() {
         }
         currentPuzzle = result.puzzle
         flipWords(currentPuzzle);
+        lastScore = null;
+        checkCount = 0;
+        document.getElementById("check-btn").disabled = false;
         console.log("Picked:", result.reference, "viable words:", result.flippable);
         message.textContent = "";
         renderVerses(result, currentPuzzle);
@@ -628,8 +635,10 @@ function renderVerses(result, puzzle) {
 
     if (SHOW_REFERENCE) {
         const ref = document.createElement("div");
+        ref.id = "reference-line";
         ref.className = "reference";
         ref.textContent = `${result.reference} (${translation})`;
+        ref.style.display = SHOW_REFERENCE ? "block" : "none";
         display.appendChild(ref);
     }
 }
@@ -704,6 +713,40 @@ function startDailyGame() {
     dailyDayNumber = Math.floor((todayLocal.getTime() - epochLocal.getTime()) / (1000 * 60 * 60 * 24));
 
     startBoardGeneration();
+}
+
+function checkAnswers() {
+    const dropdownTokens = currentPuzzle.flatMap(v => v.tokens).filter(t => t.hasDropdown);
+    if (dropdownTokens.length === 0) return;
+
+    // A dropdown is correct when it's showing the ORIGINAL word
+    const correct = dropdownTokens.filter(t => t.selected === t.text).length;
+    const percent = Math.round(correct / dropdownTokens.length * 100);
+    checkCount++;
+
+    // Compare with the last check
+    let arrow = "";
+    let color = "status-orange";
+    if (lastScore !== null) {
+        if (percent > lastScore) { arrow = " ▲"; color = "status-green"; }
+        else if (percent < lastScore) { arrow = " ▼"; color = "status-red"; }
+        else { arrow = " ▬"; }
+    }
+    lastScore = percent;
+
+    const message = document.getElementById("msg-label");
+
+    if (percent === 100) {
+        message.textContent = `Solved in ${checkCount} ${checkCount === 1 ? "check" : "checks"}! 🎉`;
+        message.className = "msg-text status-green";
+
+        document.getElementById("reference-line").style.display = "block";   // reveal the reference
+        document.getElementById("check-btn").disabled = true;
+        document.querySelectorAll("select.swap").forEach(s => s.disabled = true);
+    } else {
+        message.textContent = `${percent}% correct${arrow}`;
+        message.className = `msg-text ${color}`;
+    }
 }
 
 // --- SHARE RESULTS LOGIC ---
