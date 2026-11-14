@@ -4,19 +4,45 @@ const DATA_FOLDER = "Bible_Data";   // folder that holds OT/ and NT/
 const TARGET_WORDS = 20;            // keep adding verses until we have this many viable words
 const MIN_WORD_LENGTH = 3;          // words shorter than this are not viable
 const SHOW_REFERENCE = false;    // later this will be hidden until the player wins
+const DAILY_BOOK = "Entire Bible";
+const DAILY_FLIP_PERCENT = 50;   // same difficulty for everyone in the daily game
 
 // Keys used for saving/loading dropdown choices.
 // Both the save code and the load code use THESE constants,
 // so the spelling can never get out of sync.
 const STORAGE_KEYS = {
     translation: "Bible_Translation",
-    book: "Bible_Book"
+    book: "Bible_Book",
+    flipPercent: "Bible_FlipPercent"
 };
 
 // Words that can never be swapped for an antonym. Add more as you find them.
 const STOP_WORDS = new Set([
     "come", "go", "be", "is", "are", "was", "were", "am", "the", "a", "an", "and", "said", "ham", "put"
 ]);
+
+// Pairs that must never be offered together (blocked in both directions).
+// Use "*" as the first item to ban a word from EVER appearing as an antonym.
+const BLOCKED_PAIRS = [
+    ["will", "disinherit"],
+    ["*", "disinherit"]
+];
+// If the CSV has an entry for a word, use ONLY the CSV (skip Datamuse for it)
+const CSV_OVERRIDES_DATAMUSE = true;
+
+const BLOCKED = new Set();
+const BLOCKED_ANYWHERE = new Set();
+BLOCKED_PAIRS.forEach(([a, b]) => {
+    if (a === "*") BLOCKED_ANYWHERE.add(b.toLowerCase());
+    else {
+        BLOCKED.add(`${a.toLowerCase()}|${b.toLowerCase()}`);
+        BLOCKED.add(`${b.toLowerCase()}|${a.toLowerCase()}`);
+    }
+});
+function isBlockedPair(base, antonym) {
+    return BLOCKED_ANYWHERE.has(antonym) || BLOCKED.has(`${base}|${antonym}`);
+}
+
 
 // Used by the daily game's share text
 const CATEGORY_EMOJIS = ["🟨", "🟩", "🟦", "🟪"];
@@ -98,7 +124,12 @@ function restoreSavedSettings() {
     const savedTranslation = localStorage.getItem(STORAGE_KEYS.translation);
     const savedBook = localStorage.getItem(STORAGE_KEYS.book);
     const savedFlipPercent = localStorage.getItem(STORAGE_KEYS.flipPercent);
-
+    
+    if (savedFlipPercent !== null) {
+        flipPercent = parseInt(savedFlipPercent);
+        document.getElementById("flip-slider").value = flipPercent;
+        document.getElementById("flip-value").textContent = flipPercent;
+    }
 
     if (savedTranslation) {
         document.getElementById("translation-select").value = savedTranslation;
@@ -106,24 +137,27 @@ function restoreSavedSettings() {
     if (savedBook) {
         document.getElementById("book-select").value = savedBook;
     }
-    if (savedFlipPercent) {
-        flipPercent = parseInt(savedFlipPercent);
-        document.getElementById("flip-slider").value = flipPercent;
-        document.getElementById("flip-value").textContent = flipPercent;
-    }
+
 }
 
 // Runs when Generate is clicked: dropdowns -> variables -> storage
 function readAndSaveSettings() {
+    if (isDailyMode) {
+        bookChoice = DAILY_BOOK;
+        flipPercent = DAILY_FLIP_PERCENT;
+        return;   // translation was chosen in startDailyGame; nothing is saved,
+                  // so the player's setup-screen choices survive
+    }
+
     translation = document.getElementById("translation-select").value;
     bookChoice = document.getElementById("book-select").value;
-    flipPercent = parseInt(document.getElementById("flip-slider").value);
+    const sliderValue = parseInt(document.getElementById("flip-slider").value);
+    flipPercent = Number.isNaN(sliderValue) ? 50 : sliderValue;
 
     localStorage.setItem(STORAGE_KEYS.translation, translation);
     localStorage.setItem(STORAGE_KEYS.book, bookChoice);
     localStorage.setItem(STORAGE_KEYS.flipPercent, flipPercent);
 }
-
 // Normal (random) game: make sure daily settings are switched off first
 function startRandomGame() {
     isDailyMode = false;
@@ -140,8 +174,8 @@ function setupEventListeners() {
     document.getElementById("flip-slider").addEventListener("input", () => {
         flipPercent = parseInt(document.getElementById("flip-slider").value);
         document.getElementById("flip-value").textContent = flipPercent;
-    document.getElementById("check-btn").addEventListener("click", checkAnswers);
     });
+    document.getElementById("check-btn").addEventListener("click", checkAnswers);
 
 
     // Daily game button, inserted just under How To Play
@@ -176,12 +210,7 @@ function showScreen(which) {
 // WORD HELPERS
 // =====================================================
 
-// Returns an array of the viable words in a piece of text.
-// (An array, not a Set, so a word used twice counts twice.)
-function getWords(text) {
-    const rawWords = text.toLowerCase().match(/[a-z]+(?:['\-][a-z]+)*/g) || [];
-    return rawWords.filter(word => !STOP_WORDS.has(word) && word.length >= MIN_WORD_LENGTH);
-}
+
 
 // Tidies up raw verse text from the JSON files
 function cleanText(text) {
@@ -211,12 +240,19 @@ function isEligibleWord(word) {
 
 // Builds one verse: tokens + grammar + antonym options.
 async function buildVerse(verse) {
-    const tokens = tokenizeVerse(verse.text).map(token => ({
+    await loadOfflineAntonyms();
+    const tokens = mergePhrases(tokenizeVerse(verse.text)).map(token => ({
         ...token,
-        eligible: token.isWord && isEligibleWord(token.text)
+        eligible: token.isPhrase || (token.isWord && isEligibleWord(token.text))
     }));
     addGrammar(tokens, verse.text);
-
+    // If the CSV has an entry for the exact word in the verse, use it as written
+    tokens.forEach(t => {
+        if (t.eligible && !t.isPhrase && OFFLINE_ANTONYMS[t.text.toLowerCase()]) {
+            t.base = t.text.toLowerCase();
+            t.form = "none";
+        }
+    });
     // Look up antonyms for all eligible words at the same time
     const eligible = tokens.filter(t => t.eligible);
     const lists = await Promise.all(eligible.map(t => fetchAntonyms(t.base)));
@@ -268,7 +304,7 @@ function addGrammar(tokens, verseText) {
     let nextTerm = 0;
 
     tokens.forEach(token => {
-        if (!token.eligible) return;
+        if (!token.eligible || token.isPhrase) return;
 
         // Safe defaults, in case compromise can't match this word
         token.tags = [];
@@ -298,12 +334,17 @@ function addGrammar(tokens, verseText) {
 // --- OFFLINE ANTONYM LIST (loaded from antonyms.csv) ---
 const ANTONYM_CSV = "antonyms.csv";
 const CSV_BOTH_DIRECTIONS = true;   // true: a row "love,hate" also makes "hate" -> "love"
-const USE_DATAMUSE = true;          // false = use only your CSV (faster, fully predictable)
+const USE_DATAMUSE = true;    
+const ALLOW_DATAMUSE_PHRASES = true;   
 
 const OFFLINE_ANTONYMS = {};        // word -> LIST of antonyms
 let offlineLoadPromise = null;
+let maxPhraseWords = 1;
 
 function addToOfflineList(word, antonym) {
+    [word, antonym].forEach(w => {
+        maxPhraseWords = Math.max(maxPhraseWords, w.split(" ").length);
+    });
     if (!OFFLINE_ANTONYMS[word]) OFFLINE_ANTONYMS[word] = [];
     if (!OFFLINE_ANTONYMS[word].includes(antonym)) {
         OFFLINE_ANTONYMS[word].push(antonym);
@@ -324,10 +365,9 @@ async function readAntonymCsv() {
 
         text.replace(/^\uFEFF/, "").split(/\r?\n/).forEach(line => {
             const [word, antonym] = line.split(",")
-                .map(cell => cell.trim().replace(/^"|"$/g, "").toLowerCase());
-            if (!word || !antonym || word === "word") return;   // skip blanks and the header
-
-            addToOfflineList(word, antonym);
+                .map(cell => cell.trim().replace(/^"|"$/g, "").replace(/[‘’]/g, "'").replace(/\s+/g, " ").toLowerCase());
+                if (!word || !antonym) return;   
+                addToOfflineList(word, antonym);  
             if (CSV_BOTH_DIRECTIONS) addToOfflineList(antonym, word);
         });
         console.log("Loaded offline antonyms for", Object.keys(OFFLINE_ANTONYMS).length, "words");
@@ -336,6 +376,42 @@ async function readAntonymCsv() {
     }
 }
 
+// Joins consecutive words into one token when the CSV has that phrase
+// (longest match wins, e.g. "out of" beats "out").
+function mergePhrases(tokens) {
+    if (maxPhraseWords < 2) return tokens;
+    const merged = [];
+    let i = 0;
+    while (i < tokens.length) {
+        const t = tokens[i];
+        let matched = false;
+        if (t.isWord) {
+            for (let n = maxPhraseWords; n >= 2 && !matched; n--) {
+                const words = [t.text];
+                let end = i;
+                let ok = true;
+                for (let w = 1; w < n; w++) {
+                    const gap = tokens[end + 1], next = tokens[end + 2];
+                    if (!gap || !next || gap.isWord || !/^\s+$/.test(gap.text) || !next.isWord) { ok = false; break; }
+                    words.push(next.text);
+                    end += 2;
+                }
+                if (!ok) continue;
+                const key = words.join(" ").toLowerCase();
+                if (OFFLINE_ANTONYMS[key]) {
+                    merged.push({
+                        text: words.join(" "), isWord: true, isPhrase: true,
+                        eligible: true, base: key, form: "none", tags: []
+                    });
+                    i = end + 1;
+                    matched = true;
+                }
+            }
+        }
+        if (!matched) { merged.push(t); i++; }
+    }
+    return merged;
+}
 
 const antonymCache = new Map();   // base word -> antonym (or null if none)
 
@@ -347,32 +423,34 @@ async function fetchAntonyms(base) {
     await loadOfflineAntonyms();
     if (antonymCache.has(base)) return antonymCache.get(base);
 
-        let fromDatamuse = [];
-    if (USE_DATAMUSE) {
+    const curated = (OFFLINE_ANTONYMS[base] || []).filter(w => !isBlockedPair(base, w));
+    let fromDatamuse = [];
+    let datamuseFailed = false;
+
+    const skipDatamuse = base.includes(" ") || (CSV_OVERRIDES_DATAMUSE && curated.length > 0);
+    if (USE_DATAMUSE && !skipDatamuse) {
         try {
             const url = `https://api.datamuse.com/words?rel_ant=${encodeURIComponent(base)}&max=10&src=${encodeURIComponent(location.host)}`;
             const response = await fetch(url);
             if (!response.ok) throw new Error(`Datamuse status ${response.status}`);
             const results = await response.json();
-
             fromDatamuse = results
                 .map(r => r.word)
-                .filter(w => !w.includes(" ") && w !== base);
+.filter(w => (ALLOW_DATAMUSE_PHRASES || !w.includes(" ")) && w !== base && !isBlockedPair(base, w));
+            if (fromDatamuse.length === 0) {
+                console.log("No Datamuse antonym found for:", base);
+            }
         } catch (error) {
+            datamuseFailed = true;
             console.warn("Datamuse failed for", base, "- using offline list only.", error);
         }
     }
 
-    // Your curated words come first, then Datamuse's, with no duplicates
-    const curated = OFFLINE_ANTONYMS[base] || [];
+    // Filtering happens BEFORE slice, so blocked words never use up a slot
     const extras = fromDatamuse.filter(w => !curated.includes(w));
     const options = [...curated, ...extras].slice(0, MAX_ANTONYM_CHOICES);
 
-    if (options.length === 0) {
-        console.info("No antonym found for:", base);
-    }
-
-    antonymCache.set(base, options);
+    if (!datamuseFailed) antonymCache.set(base, options);
     return options;
 }
 // Picks one antonym from the options. The `chosen` Map is created fresh for each verse,
@@ -425,8 +503,17 @@ function lastWord(text) {
 function addS(word) {
     if (/(s|x|z|ch|sh)$/.test(word)) return word + "es";
     if (/[^aeiou]y$/.test(word)) return word.slice(0, -1) + "ies";
+    if (/[^aeiou]o$/.test(word)) return word + "es";
     return word + "s";
 }
+
+// One-off forms the rules can't produce. The key is "base|form".
+const IRREGULAR_FORMS = {
+    "go|third": "goes",
+    "do|third": "does",
+    "have|third": "has",
+    "be|third": "is"
+};
 
 // Simple backup rules, used only if compromise leaves a word unchanged
 function simpleInflect(word, form) {
@@ -446,8 +533,9 @@ function simpleInflect(word, form) {
 
 // Turns a base-form antonym into the form the original word had.
 function inflectAntonym(word, form) {
-    if (form === "none") return word;
-
+    if (form === "none" || word.includes(" ")) return word;
+    const special = IRREGULAR_FORMS[`${word}|${form}`];
+    if (special) return special;
     let result = word;
 
     if (form === "past") {
@@ -567,7 +655,9 @@ async function startBoardGeneration() {
 
     updateGameTitle();
     display.innerHTML = "";
+    message.className = "msg-text";
     message.textContent = "Loading...";
+    document.getElementById("check-btn").disabled = true;
 
     try {
         const result = await pickVerses();
@@ -633,14 +723,12 @@ function renderVerses(result, puzzle) {
     });
     display.appendChild(paragraph);
 
-    if (SHOW_REFERENCE) {
-        const ref = document.createElement("div");
-        ref.id = "reference-line";
-        ref.className = "reference";
-        ref.textContent = `${result.reference} (${translation})`;
-        ref.style.display = SHOW_REFERENCE ? "block" : "none";
-        display.appendChild(ref);
-    }
+    const ref = document.createElement("div");
+    ref.id = "reference-line";
+    ref.className = "reference";
+    ref.textContent = `${result.reference} (${translation})`;
+    ref.style.display = SHOW_REFERENCE ? "block" : "none";
+    display.appendChild(ref);
 }
 
 
@@ -652,7 +740,7 @@ function updateGameTitle() {
     let suffix = "";
     if (isDailyMode) {
         // Toggle square brackets if the script failed on a prior book
-        suffix = hasFailedDailyBook ? `[Daily: ${bookChoice}]` : `(Daily: ${bookChoice})`;
+        suffix = hasFailedDailyBook ? `[Daily Game]` : `(Daily Game)`;
     } else {
         suffix = `(${bookChoice})`;
     }
@@ -711,6 +799,11 @@ function startDailyGame() {
     const epochLocal = new Date(2024, 0, 1);
 
     dailyDayNumber = Math.floor((todayLocal.getTime() - epochLocal.getTime()) / (1000 * 60 * 60 * 24));
+    const seed = cyrb128("bizarro-" + dailyDayNumber)[0];
+    randomFunc = mulberry32(seed);
+ 
+    const translations = [...document.getElementById("translation-select").options].map(o => o.value);
+    translation = translations[Math.floor(randomFunc() * translations.length)];
 
     startBoardGeneration();
 }

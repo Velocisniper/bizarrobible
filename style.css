@@ -184,10 +184,6 @@ select.swap {
 .status-orange { color: #e67e22; }
 .status-red { color: #e74c3c; }
 
-.hasAntonym{
-    color: #e6c3ff;
-
-}
 
 .action-btn:disabled {
     background-color: #2e3b4e;
