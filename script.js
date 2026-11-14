@@ -476,21 +476,37 @@ function matchCase(original, word) {
 // The slider (flipPercent) is the chance that a dropdown starts on the antonym.
 function flipWords(puzzle) {
     puzzle.forEach(verse => {
-        const chosen = new Map();   // fresh for each verse, so repeats of a word agree
-        verse.tokens.forEach(token => {
+        const chosen = new Map();
+        verse.tokens.forEach((token, index) => {
             if (!token.hasAntonym) return;
 
-    const base = chooseAntonym(token.options, token.base, chosen);
-    const antonym = matchCase(token.text, inflectAntonym(base, token.form));
-    if (antonym.toLowerCase() === token.text.toLowerCase()) return;   // skip if both options would match
+            const base = chooseAntonym(token.options, token.base, chosen);
+            const antonym = matchCase(token.text, inflectAntonym(base, token.form));
+            if (antonym.toLowerCase() === token.text.toLowerCase()) return;
+
+            let originalText = token.text;
+            let antonymText = antonym;
+
+            // If the swap changes a/an, put the article inside the dropdown
+            const article = findArticle(verse.tokens, index);
+            if (article) {
+                const newArticle = matchCase(article.token.text, aOrAn(antonym));
+                if (newArticle.toLowerCase() !== article.token.text.toLowerCase()) {
+                    originalText = article.token.text + " " + token.text;
+                    antonymText = newArticle + " " + antonym;
+                    article.token.skip = true;   // don't draw the article or its space separately
+                    article.gap.skip = true;
+                }
+            }
+
             token.hasDropdown = true;
-            token.antonym = antonym;
-            token.choices = deterministicShuffle([token.text, antonym]);
-            token.selected = (randomFunc() * 100 < flipPercent) ? antonym : token.text;
+            token.text = originalText;
+            token.antonym = antonymText;
+            token.choices = deterministicShuffle([originalText, antonymText]);
+            token.selected = (randomFunc() * 100 < flipPercent) ? antonymText : originalText;
         });
     });
 }
-
 // --- INFLECTION ---
 
 // Returns the last word of a piece of text ("they saved" -> "saved")
@@ -514,6 +530,29 @@ const IRREGULAR_FORMS = {
     "have|third": "has",
     "be|third": "is"
 };
+
+// --- A / AN ---
+
+// Words that break the "vowel letter = an" rule
+const AN_EXCEPTIONS = ["hour", "honest", "honor", "honour", "heir"];
+const A_EXCEPTIONS = ["uni", "use", "usu", "uti", "eu", "one", "once", "ubiq", "ura"];
+
+// Returns "a" or "an" for the word that follows it
+function aOrAn(word) {
+    const w = word.trim().toLowerCase();
+    if (AN_EXCEPTIONS.some(p => w.startsWith(p))) return "an";
+    if (A_EXCEPTIONS.some(p => w.startsWith(p))) return "a";
+    return /^[aeiou]/.test(w) ? "an" : "a";
+}
+
+// If the token at index i is directly preceded by "a"/"an", returns that article and the space between.
+function findArticle(tokens, i) {
+    const gap = tokens[i - 1], art = tokens[i - 2];
+    if (!gap || !art || gap.isWord || !/^\s+$/.test(gap.text)) return null;
+    if (!art.isWord || !/^an?$/i.test(art.text)) return null;
+    return { token: art, gap: gap };
+}
+
 
 // Simple backup rules, used only if compromise leaves a word unchanged
 function simpleInflect(word, form) {
@@ -710,6 +749,7 @@ function renderVerses(result, puzzle) {
         paragraph.appendChild(number);
 
         verse.tokens.forEach(token => {
+    if (token.skip) return;
     if (token.hasDropdown){
         paragraph.appendChild(makeDropdown(token));
     } else {
