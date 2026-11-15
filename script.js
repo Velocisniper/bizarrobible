@@ -89,6 +89,9 @@ let randomFunc = Math.random;
 let isDailyMode = false;
 let dailyDayNumber = 0;
 let guessHistoryColors = [];
+let currentReference = "";
+let dailySolved = false;
+const DAILY_STORAGE_PREFIX = "Bible_Daily_";
 let hasFailedDailyBook = false; // Tracks if we had to swap out of a seeded book
 
 
@@ -140,6 +143,14 @@ function restoreSavedSettings() {
 
 }
 
+// Picks a real translation from the dropdown, skipping the "Random" entry itself
+function pickRandomTranslation() {
+    const options = [...document.getElementById("translation-select").options]
+        .map(o => o.value)
+        .filter(v => v !== "Random");
+    return options[Math.floor(Math.random() * options.length)];
+}
+
 // Runs when Generate is clicked: dropdowns -> variables -> storage
 function readAndSaveSettings() {
     if (isDailyMode) {
@@ -149,12 +160,13 @@ function readAndSaveSettings() {
                   // so the player's setup-screen choices survive
     }
 
-    translation = document.getElementById("translation-select").value;
+    const translationChoice = document.getElementById("translation-select").value;
+    translation = (translationChoice === "Random") ? pickRandomTranslation() : translationChoice;
     bookChoice = document.getElementById("book-select").value;
     const sliderValue = parseInt(document.getElementById("flip-slider").value);
     flipPercent = Number.isNaN(sliderValue) ? 50 : sliderValue;
 
-    localStorage.setItem(STORAGE_KEYS.translation, translation);
+    localStorage.setItem(STORAGE_KEYS.translation, translationChoice);
     localStorage.setItem(STORAGE_KEYS.book, bookChoice);
     localStorage.setItem(STORAGE_KEYS.flipPercent, flipPercent);
 }
@@ -171,6 +183,7 @@ function setupEventListeners() {
     document.getElementById("how-to-play-btn").addEventListener("click", showHowToPlay);
     document.getElementById("new-verses-btn").addEventListener("click", startRandomGame);
     document.getElementById("back-btn").addEventListener("click", () => showScreen("setup"));
+    document.getElementById("share-btn").addEventListener("click", shareResults);
     document.getElementById("flip-slider").addEventListener("input", () => {
         flipPercent = parseInt(document.getElementById("flip-slider").value);
         document.getElementById("flip-value").textContent = flipPercent;
@@ -692,7 +705,10 @@ async function startBoardGeneration() {
     const message = document.getElementById("msg-label");
     const display = document.getElementById("verse-display");
 
+    dailySolved = false;
+    guessHistoryColors = [];
     updateGameTitle();
+    updateGameButtons();
     display.innerHTML = "";
     message.className = "msg-text";
     message.textContent = "Loading...";
@@ -704,7 +720,8 @@ async function startBoardGeneration() {
             message.textContent = "Couldn't find enough verses. Try another book.";
             return;
         }
-        currentPuzzle = result.puzzle
+        currentPuzzle = result.puzzle;
+        currentReference = result.reference;
         flipWords(currentPuzzle);
         lastScore = null;
         checkCount = 0;
@@ -712,6 +729,7 @@ async function startBoardGeneration() {
         console.log("Picked:", result.reference, "viable words:", result.flippable);
         message.textContent = "";
         renderVerses(result, currentPuzzle);
+        saveDailyProgress();   // does nothing outside the daily game
     } catch (error) {
         console.error(error);
         message.textContent = "Error loading verses. Press F12 and check the console.";
@@ -729,9 +747,11 @@ function makeDropdown(token) {
         select.appendChild(option);
     });
 
-    select.value = token.selected;
+    select.value = token.selected;   // <-- show what the game thinks is selected
+
     select.addEventListener("change", () => {
-        token.selected = select.value;   // remember the player's pick
+        token.selected = select.value;
+        saveDailyProgress();
     });
     return select;
 }
@@ -838,15 +858,113 @@ function startDailyGame() {
     const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const epochLocal = new Date(2024, 0, 1);
 
+    
     dailyDayNumber = Math.floor((todayLocal.getTime() - epochLocal.getTime()) / (1000 * 60 * 60 * 24));
     const seed = cyrb128("bizarro-" + dailyDayNumber)[0];
     randomFunc = mulberry32(seed);
  
-    const translations = [...document.getElementById("translation-select").options].map(o => o.value);
+     const translations = [...document.getElementById("translation-select").options]
+        .map(o => o.value)
+        .filter(v => v !== "Random");
     translation = translations[Math.floor(randomFunc() * translations.length)];
 
+        clearOldDailySaves();
+    const saved = loadDailyProgress();
+    if (saved) {
+        restoreDailyGame(saved);
+        return;
+    }
     startBoardGeneration();
 }
+
+// --- DAILY SAVE / RESTORE ---
+
+function dailyKey() {
+    return DAILY_STORAGE_PREFIX + dailyDayNumber;
+}
+
+// Saves the whole puzzle plus progress, so coming back shows exactly the same board
+// (even if Datamuse or the CSV would give different answers today).
+function saveDailyProgress() {
+    if (!isDailyMode) return;
+    try {
+        localStorage.setItem(dailyKey(), JSON.stringify({
+            translation: translation,
+            reference: currentReference,
+            puzzle: currentPuzzle,
+            checkCount: checkCount,
+            lastScore: lastScore,
+            history: guessHistoryColors,
+            solved: dailySolved
+        }));
+    } catch (error) {
+        console.warn("Could not save daily progress", error);
+    }
+}
+
+function loadDailyProgress() {
+    try {
+        const raw = localStorage.getItem(dailyKey());
+        return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Old days' saves are no longer needed
+function clearOldDailySaves() {
+    Object.keys(localStorage)
+        .filter(k => k.startsWith(DAILY_STORAGE_PREFIX) && k !== dailyKey())
+        .forEach(k => localStorage.removeItem(k));
+}
+
+// Shows/hides New Verses and Share depending on the mode
+function updateGameButtons() {
+    document.getElementById("new-verses-btn").style.display = isDailyMode ? "none" : "";
+    document.getElementById("share-btn").style.display = (isDailyMode && dailySolved) ? "" : "none";
+}
+
+// The "you won" look: message, reference revealed, everything locked
+function showSolvedState() {
+    const message = document.getElementById("msg-label");
+    message.textContent = `Solved in ${checkCount} ${checkCount === 1 ? "check" : "checks"}! 🎉`;
+    message.className = "msg-text status-green";
+
+    document.getElementById("reference-line").style.display = "block";
+    document.getElementById("check-btn").disabled = true;
+    document.querySelectorAll("select.swap").forEach(s => s.disabled = true);
+}
+
+// Rebuilds the daily game from a save (no loading, no randomness)
+function restoreDailyGame(saved) {
+    translation = saved.translation;
+    bookChoice = DAILY_BOOK;
+    flipPercent = DAILY_FLIP_PERCENT;
+    currentPuzzle = saved.puzzle;
+    currentReference = saved.reference;
+    checkCount = saved.checkCount;
+    lastScore = saved.lastScore;
+    guessHistoryColors = saved.history || [];
+    dailySolved = saved.solved;
+
+    showScreen("game");
+    updateGameTitle();
+    renderVerses({ reference: currentReference }, currentPuzzle);
+    updateGameButtons();
+
+    const message = document.getElementById("msg-label");
+    document.getElementById("check-btn").disabled = false;
+    if (dailySolved) {
+        showSolvedState();
+    } else if (lastScore !== null) {
+        message.textContent = `${lastScore}% correct`;
+        message.className = "msg-text status-orange";
+    } else {
+        message.textContent = "";
+    }
+}
+
+
 
 function checkAnswers() {
     const dropdownTokens = currentPuzzle.flatMap(v => v.tokens).filter(t => t.hasDropdown);
@@ -856,6 +974,9 @@ function checkAnswers() {
     const correct = dropdownTokens.filter(t => t.selected === t.text).length;
     const percent = Math.round(correct / dropdownTokens.length * 100);
     checkCount++;
+
+    // One row of results per check, for the share text (1 = right, 0 = wrong)
+    guessHistoryColors.push(dropdownTokens.map(t => (t.selected === t.text ? 1 : 0)));
 
     // Compare with the last check
     let arrow = "";
@@ -870,16 +991,14 @@ function checkAnswers() {
     const message = document.getElementById("msg-label");
 
     if (percent === 100) {
-        message.textContent = `Solved in ${checkCount} ${checkCount === 1 ? "check" : "checks"}! 🎉`;
-        message.className = "msg-text status-green";
-
-        document.getElementById("reference-line").style.display = "block";   // reveal the reference
-        document.getElementById("check-btn").disabled = true;
-        document.querySelectorAll("select.swap").forEach(s => s.disabled = true);
+        dailySolved = true;
+        showSolvedState();
+        updateGameButtons();
     } else {
         message.textContent = `${percent}% correct${arrow}`;
         message.className = `msg-text ${color}`;
     }
+    saveDailyProgress();
 }
 
 // --- SHARE RESULTS LOGIC ---
@@ -890,19 +1009,24 @@ function shareResults() {
         day: 'numeric'
     });
 
-    let emojiText = `Daily Bizzare Bible - ${todayString} - ${bookChoice}\n\n`;
+    let emojiText = `Daily BizarroBible ${todayString}:\n`;
+    emojiText += `${checkCount} ${checkCount === 1 ? "Guess" : "Guesses"}\n`;
 
-    guessHistoryColors.forEach(rowColors => {
-        emojiText += rowColors.map(colorIndex => CATEGORY_EMOJIS[colorIndex]).join("") + "\n";
+    let previous = 0;
+    guessHistoryColors.forEach(row => {
+        const percent = Math.round(row.reduce((sum, v) => sum + v, 0) / row.length * 100);
+        const arrow = percent > previous ? "▲" : percent < previous ? "▼" : "➖";
+        emojiText += `${arrow}, ${percent}%\n`;
+        previous = percent;
     });
 
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
     if (isMobile && navigator.share) {
         navigator.share({
-            title: 'Bizzare Bible',
+            title: 'Bizarro Bible',
             text: emojiText
-        }).catch((error) => {
+        }).catch(() => {
             copyToClipboardFallback(emojiText);
         });
     } else {
@@ -919,4 +1043,5 @@ function copyToClipboardFallback(text) {
         alert("Failed to copy results. You can manually select and copy:\n\n" + text);
     });
 }
+
 
