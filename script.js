@@ -190,7 +190,18 @@ function setupEventListeners() {
     });
     document.getElementById("check-btn").addEventListener("click", checkAnswers);
 
+    // How To Play modal: close with the × or by clicking the dark backdrop
+    const howToModal = document.getElementById("how-to-modal");
+    document.getElementById("close-modal").addEventListener("click", () => {
+        howToModal.style.display = "none";
+    });
+    howToModal.addEventListener("click", (e) => {
+        if (e.target === howToModal) howToModal.style.display = "none";
+    });
 
+        document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") howToModal.style.display = "none";
+    });
     // Daily game button, inserted just under How To Play
     const howToPlayBtn = document.getElementById("how-to-play-btn");
     const dailyBtn = document.createElement("button");
@@ -203,14 +214,7 @@ function setupEventListeners() {
 }
 
 function showHowToPlay() {
-    alert(
-        "HOW TO PLAY:\n\n" +
-        "• Verses from the Bible will be chosen at random.\n" +
-        "• Each word with a viable antonym may be replaced with its antonym.\n" +
-        "• These words get a drop down so you can pick between the original and the opposite.\n" +
-        "• Your goal is to use as few guesses as possible to restore the verse to its original message!\n\n" +
-        "- Created by Matthew Kearney"
-    );
+    document.getElementById("how-to-modal").style.display = "flex";
 }
 
 function showScreen(which) {
