@@ -211,6 +211,7 @@ function setupEventListeners() {
     dailyBtn.style.marginTop = "10px";
     howToPlayBtn.insertAdjacentElement("afterend", dailyBtn);
     dailyBtn.addEventListener("click", startDailyGame);
+    updateDailyButton();
 }
 
 function showHowToPlay() {
@@ -220,6 +221,7 @@ function showHowToPlay() {
 function showScreen(which) {
     document.getElementById("setup-screen").style.display = (which === "setup") ? "flex" : "none";
     document.getElementById("game-screen").style.display = (which === "game") ? "flex" : "none";
+    if (which === "setup") updateDailyButton();
 }
 
 
@@ -858,12 +860,8 @@ function startDailyGame() {
     isDailyMode = true;
     hasFailedDailyBook = false;
 
-    const now = new Date();
-    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const epochLocal = new Date(2024, 0, 1);
+        dailyDayNumber = getTodayDayNumber();
 
-    
-    dailyDayNumber = Math.floor((todayLocal.getTime() - epochLocal.getTime()) / (1000 * 60 * 60 * 24));
     const seed = cyrb128("bizarro-" + dailyDayNumber)[0];
     randomFunc = mulberry32(seed);
  
@@ -885,6 +883,33 @@ function startDailyGame() {
 
 function dailyKey() {
     return DAILY_STORAGE_PREFIX + dailyDayNumber;
+}
+
+// Today's day number (same math startDailyGame uses)
+function getTodayDayNumber() {
+    const now = new Date();
+    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const epochLocal = new Date(2024, 0, 1);
+    return Math.floor((todayLocal.getTime() - epochLocal.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// Sets the daily button's label based on today's save:
+// no save -> Play, unfinished save -> Resume, solved -> View Results
+function updateDailyButton() {
+    const btn = document.getElementById("daily-game-btn");
+    if (!btn) return;
+
+    let label = "Play Daily Game";
+    try {
+        const raw = localStorage.getItem(DAILY_STORAGE_PREFIX + getTodayDayNumber());
+        if (raw) {
+            const saved = JSON.parse(raw);
+            label = saved.solved ? "View Daily Results" : "Resume Daily Game";
+        }
+    } catch (error) {
+        // bad or missing save: keep the default label
+    }
+    btn.textContent = label;
 }
 
 // Saves the whole puzzle plus progress, so coming back shows exactly the same board
