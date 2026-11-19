@@ -227,3 +227,11 @@ select.swap {
 .modal-content ul { padding-left: 20px; line-height: 1.6; font-size: 1.05rem; }
 .modal-content li { margin-bottom: 12px; }
 .credits { margin-top: 25px; font-style: italic; color: #aaaaaa; font-size: 0.9rem; }
+
+a.ctk-btn {
+    text-decoration: none;
+}
+
+#other-games-btn {
+    margin-top: 30px;
+}
