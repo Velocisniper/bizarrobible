@@ -1044,7 +1044,7 @@ function shareResults() {
     let previous = 0;
     guessHistoryColors.forEach(row => {
         const percent = Math.round(row.reduce((sum, v) => sum + v, 0) / row.length * 100);
-        const arrow = percent === 100 ? "✔" : percent > previous ? "▲" : percent < previous ? "▼" : "➖";        emojiText += `${arrow}, ${percent}%\n`;
+        const arrow = percent === 100 ? "✔" : percent > previous ? "▲" : percent < previous ? "▼" : "➖";        emojiText += `[${arrow}${percent}%] `;
         previous = percent;
     });
 
